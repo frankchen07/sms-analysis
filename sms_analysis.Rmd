@@ -119,6 +119,8 @@ More on sentiment to come! Perhaps a Shiny application...
 
 ---
 
+# Notes
+
 first calculate sentiment for each individual text using a loop
 check out distribution of sentiment for Beans only
 take note of highs and lows
@@ -126,7 +128,8 @@ go by average sentiment per week per year
 zoom in on drop year, month, and week
 check out the actual text
 
-# measurable metrics
+# Measurable Metrics
+
 * sentiment score per person (normalized by bag of words)
 * average cuss words per text(find fuck shit bitch damn ass butt suck / total texts
 * sentiment score by text
@@ -136,7 +139,8 @@ check out the actual text
 	* the day/period with the widest range of sentiment scores (moodiest day?)
 	* correlate negative sentiment days with cuss words on which day
 
-# drawbacks
+# Drawbacks
+
 * limited dictionaries
 * cuss words and filters may not take into account emoticons
 * cuss words and filters don't take into account misspellings
@@ -146,9 +150,11 @@ check out the actual text
 * doesn't account for lost messages (iPhone thrown into the lake)
 * doesn't take into negation
 
-# shiny application
+**Potential Shiny application?**
 
 ---
+
+# Working Code
 
 ```{r}
 ### functions ################################################################
