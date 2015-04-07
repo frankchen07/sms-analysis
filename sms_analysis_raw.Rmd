@@ -1,0 +1,260 @@
+# Working Code
+
+```{r}
+### functions ################################################################
+numTextsReceived <- function(yourName) {
+	sms %>% group_by(fromName, toName) %>%
+	summarize(count=n()) %>%
+	filter(toName==yourName) %>%
+	rename(key=fromName, textsToMe=count)
+}
+
+numTextsSent <- function(yourName) {
+	sms %>% group_by(fromName, toName) %>%
+	summarize(count=n()) %>%
+	filter(fromName==yourName) %>%
+	rename(key=toName, textsToUser=count)
+}
+
+textSummary <- function() {
+	merge(numTextsReceived("Me"), numTextsSent("Me"), by="key") %>%
+	select(-toName, -fromName) %>%
+	mutate(total=textsToMe+textsToUser, respRatio=textsToUser/textsToMe) %>%
+	filter(total>300) %>%
+	arrange(desc(respRatio))
+}
+
+wordsPerText <- function(user, words) {  # calculates words per text
+	words <- length(words)
+	texts <- textSummary() %>% 
+		filter(key==user) %>% 
+		select(total) %>%
+		rename(wordsPerText=total)
+	return(words/texts)
+}
+
+exchangedWords <- function(user) {  # calculates total words exchanged
+	userBag <- createBag(user) %>% 
+		strsplit(, split=" ") %>% 
+		unlist() %>% 
+		.[-grep("^$", .)]
+	return(userBag)
+}
+
+profanityWords <- function(user) {
+	swearWords <- "fuck|shit|damn|bitch|^ass$|^(ass)([chlw]{1}).*"
+	profanities <- exchangedWords(user)[grep(swearWords, 
+											 exchangedWords(user))]
+	return(profanities)
+}
+
+### sentiment scores #########################################################
+
+sentimentScore <- function(user) {
+	score <- user %>% createBag %>% bagToDict %>% sentimentMean
+	message(sprintf("Your sentiment score with %s is %s!", user, score))
+}
+
+sentimentMean <- function(userDict) {
+    matchWordsIndex <- na.omit(match(userDict[, 1], sentDict[, 1]))
+    sentWords <- sentDict[matchWordsIndex, 1]
+    sentScore <- sentDict[matchWordsIndex, 2]
+    sentFreq <- userDict[match(sentWords, userDict[, 1]), 2]
+    return(sum(sentScore*sentFreq)/length(userDict))
+} 
+
+### bag of words #############################################################
+
+bagToDict <- function(userBag) {  # remove empty elements, sort
+    vBag <- userBag %>% as.character %>% 
+    	strsplit(., split=" ") %>% unlist %>% unique %>% sort
+	userBagTab <- vBag %>% factor %>% tabulate 
+    userDict <- data.frame(word=vBag, count=userBagTab) %>%
+    	arrange(., desc(count))
+    return(userDict)
+}
+
+createBag <- function(user) {  # creates bag of words by user
+	userVec <- sms %>%
+		filter(toName==user | fromName==user) %>%
+		select(text) %>%
+		unlist(, use.names=FALSE) %>%
+		as.vector() %>%
+		processBag()
+	userBag <- paste(userVec, collapse=" ")
+	return(userBag)
+}
+
+processBag <- function(vec) {  # create corpus object, extract content
+	v <- VectorSource(vec) %>% 
+		Corpus %>%
+		tm_map(., content_transformer(tolower)) %>%
+		tm_map(., removePunctuation) %>%
+		tm_map(., stemDocument) %>%
+		tm_map(., stripWhitespace)
+	vc <- vector()
+	for (i in seq(length(v))) { vc[i] <- v[[i]]$content } 
+	for (i in seq(length(vc))) { if (vc[i]=="") { vc[i] <- "the"} }
+	return(vc)
+}
+
+### load sentiment dictionary ################################################
+
+processSentDict <- function(dict) {  # add names and convert to numeric
+    names(dict) <- c("word", "score")
+    dict$score %<>% as.numeric
+    return(dict)
+}
+
+loadSentDict <- function(filepath) {  # read in sentiment dictionary
+    con <- file(filepath)
+    fileLines <- readLines(con)
+    close(con)
+    dict <- strsplit(fileLines, split="\t") %>% 
+    	do.call(rbind, .) %>% 
+    	as.data.frame(., stringsAsFactors=FALSE)
+    return(dict)
+}
+
+### filter by user ###########################################################
+
+smsPerson <- function(person) {
+	return(sms %>% filter(fromName==person | toName==person))
+}
+
+```
+
+```{r}
+library("dplyr")
+library("magrittr")
+library("ggplot2")
+library("tm")
+library("tidyr")
+setwd("~/Copy/datasets/iphone")
+sms <- read.csv("sms_data.csv")
+```
+
+```{r}
+### match numbers with contact names #########################################
+contactMatch <- c("Rock", "Me", "Joon", "Andrew", "Beans", "Mom", "Niels", 
+				  "Margaret", "Quentin", "Joyce", "Michael", "Whitney", 
+				  "Quanster", "Ingi", "Tsai", "Wendell", "Katherine", 
+				  "Miranda", "Jack", "Jen", "Jacob", "Ferguson", "Unknown",
+				  "Jay", "Umar", "Anita", "Chang", "Brian", "Lanza", "Tina", 
+				  "Ni", "Tsai", "Wes", "Spring", "Shishir", "Tanya")
+
+contactList <- sms %>% 
+	select(To) %>% 
+	unique() %>%
+	rename(Number=To) %>%
+	mutate(Name=contactMatch)
+
+sms %<>%
+	separate(Date, c("date", "time"), sep=" ", remove=T) %>%
+	transmute(date=as.POSIXct(date, tz="GMT", "%Y-%m-%d"), 
+			  year=strftime(date, format="%Y"),
+			  month=strftime(date, format="%B"),
+			  week=strftime(date, format="%W"),
+			  #time=time, as.POSIXlt(time, tz="GMT", "%H:%M:%S"), 
+			  fromName=contactList[match(From, contactList[, 1]), 2],
+			  toName=contactList[match(To, contactList[, 1]), 2], 
+			  text=Text)
+
+### sentiment dictionary call ################################################
+
+sentDict <- loadSentDict("AFINN-111.txt") %>% processSentDict()
+
+```
+
+```{r}
+textSummary()
+wordsPerText("Beans", exchangedWords("Beans"))
+wordsPerText("Beans", profanityWords("Beans"))
+sentimentScore("Beans")
+```
+
+```{r}
+### sentiment scores for each text ###########################################
+
+sms %<>%
+	mutate(sentScore=sapply(text, function(x) x %>%
+		   processBag %>%
+		   bagToDict %>%
+		   sentimentMean))
+
+### plot avg sentiment score for each and every transaction ##################
+
+ggplot(sms, aes(date, sentScore)) + 
+	geom_point() +
+	ggtitle("Text Sentiment by Time") +
+	xlab("Date") + 
+	ylab("Sentiment")
+
+highEmotions <- sms %>% 
+	filter(sentScore>=5 | sentScore<=-5) %>%
+	select(text, sentScore)
+```
+
+```{r}
+### avg sentiment score by month/week based on individual avgs ###############
+smsBeans <- smsPerson("Beans")
+
+smsBeansMonth <- smsBeans %>% 
+	group_by(year, month) %>%
+	summarize(avgScore=mean(sentScore)) %>%
+	transmute(ymd=as.Date(paste(year, month, "01", sep="-"), 
+						 format="%Y-%B-%d"),
+			  avgScore=avgScore)
+
+smsBeansJanApr <- smsBeans %>%
+	group_by(year, month, week) %>%
+	summarize(avgScore=mean(sentScore)) %>%
+	filter(year==2014 & 
+		   month %in% c("January", "February", "March", "April")) %>%
+	mutate(week=seq(from=1, to=28, by=6)) %>%
+	transmute(ymw=as.Date(paste(year, month, week, sep="-"),
+						  format="%Y-%B-%d"),
+			  avgScore=avgScore)
+
+ggplot(smsBeans, aes(date, sentScore)) + 
+	geom_point() +
+	ggtitle("Individual Text Sentiment by Time") +
+	xlab("Date") + 
+	ylab("Sentiment")
+
+ggplot(smsBeansMonth, aes(ymd, avgScore)) +
+	geom_point() +
+	geom_line() +
+	ggtitle("Text Sentiment by Month (Jul 2013-Jan 2015)") +
+	xlab("Date") + 
+	ylab("Average Sentiment Per Text") +
+	theme_bw()
+
+ggplot(smsBeansJanApr, aes(ymw, avgScore)) +
+	geom_point() +
+	geom_line() +
+	ggtitle("Text Sentiment by Week (Jan-Apr 2014)") +
+	xlab("Date") + 
+	ylab("Average Sentiment Per Text") +
+	theme_bw()
+```
+
+```{r}
+outliersFebBeans <- smsBeans %>%
+	filter(year==2014 & 
+		   month=="February" &
+		   week=="04")
+
+outliersMarBeans <- smsBeans %>%
+	filter(year==2014 & 
+		   month=="March" &
+		   week=="13")
+```
+
+
+
+
+
+
+
+
